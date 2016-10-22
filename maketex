@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+# maketex
+#
+# Copyright (c) Geoffrey Lentner 2016. All rights reserved.
+# GNU General Public License v3.0, see LICENSE file.
+
+# program variables >>>1
+MAKETEX="$0"
+PDFLATEX="`which pdflatex`"
+BIBTEX="`which bibtex`"
+CP="`which cp`"
+
+DOCUMENT=''
+BUILDDIR=''
+LOGFILE=''
+
+LOGLEVEL=INFO
+BIBLIOGRAPHY=false
+VERBOSE=false
+MONITOR=false
+# program variables <<<1
+# logging functions >>>1
+log_info()      { echo -e "[\033[32mI $(date +'%Y-%d-%m-%R:%S') MakeTex\033[0m] $*"; }
+log_warn()      { echo -e "[\033[33mW $(date +'%Y-%d-%m-%R:%S') MakeTex\033[0m] $*"; }
+log_critical()  { echo -e "[\033[35mC $(date +'%Y-%d-%m-%R:%S') MakeTex\033[0m] $*"; }
+log_error()     { echo -e "[\033[31mE $(date +'%Y-%d-%m-%R:%S') MakeTex\033[0m] $*"; }
+log_debug()     {
+	if [ x"$LOGLEVEL" = x"DEBUG" ]; then
+		echo -e "[\033[34mD $(date +'%Y-%d-%m-%R:%S') MakeTex\033[0m] $*";
+	fi
+}
+# logging functions<<<1
+
+# print usage >>>1
+if [ $# -eq 0 ]; then
+	cat <<-EOF >&2
+		usage: `basename $0` input_file [-bdmv] [-o | --output filename]
+		Compile a latex source file into a PDF document.
+	EOF
+	exit 1
+fi
+# print usage <<<1
+# print help  >>>1
+case "$1" in
+	-h | --help)
+
+		if [ $# -eq 2 ]; then
+			log_warning "help requested, ignoring remaining arguments"
+		fi
+
+		"$MAKETEX" # print usage first
+		cat <<-EOF >&2
+
+			MakeTex wraps pdflatex and executes the compile statement on your
+			behalf, stashing build files under /tmp/.
+
+			options:
+			-v, --verbose        show compiler output
+			-d, --debug          show debugging information
+			-b, --bibliography   compile with bibtex after
+			-m, --monitor        file system watch, auto-compile
+			-o, --output         specify an alternate output PDF
+			-h, --help           show this message
+		EOF
+		exit 1
+		;;
+
+	*)
+		# nothing to do
+		;;
+esac
+# print help <<<1
+
+
+# Shane Day. "how do i parse command line arguments in bash". Stack Exchange.
+# retrieved 10-21-2016 from http://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+# parse flags and switches >>>1
+while [ -n "$1" ]; do
+	# Copy so we can modify it (can't modify $1)
+	OPT="$1"
+	# Detect argument termination
+	if [ x"$OPT" = x"--" ]; then
+		shift
+		for OPT ; do
+			REMAINS="$REMAINS \"$OPT\""
+		done
+		break
+	fi
+	while [ x"$OPT" != x"-" ] ; do
+		case "$OPT" in
+			# Handle --flag=value opts like this
+			-o=* | --output=*)
+				OUTPUTFILE="${OPT#*=}"
+				shift
+				;;
+			# and --flag value opts like this
+			-o | --output)
+				OUTPUTFILE="$2"
+				shift
+				;;
+			-o*)
+				OUTPUTFILE="${OPT#-o}"
+				;;
+			-v* | --verbose)
+				VERBOSE=true
+				;;
+			-d* | --debug)
+				DEBUG=true
+				LOGLEVEL=DEBUG
+				;;
+			-m* | --monitor)
+				MONITOR=true
+				;;
+			-b* | --bibliography)
+				BIBLIOGRAPHY=true
+				;;
+			-h* | --help)
+				log_error "help flag detected, ignoring all other arguments"
+				"$MAKETEX" -h # show help normally
+				exit 1
+				;;
+			# Anything unknown is recorded for later
+			*)
+				REMAINS="$REMAINS \"$OPT\""
+				break
+				;;
+		esac
+		# Check for multiple short options
+		# NOTICE: be sure to update this pattern to match valid options
+		NEXTOPT="${OPT#-[vdhmb]}" # try removing single short opt
+		if [ x"$OPT" != x"$NEXTOPT" ] ; then
+			OPT="-$NEXTOPT"  # multiple short opts, keep going
+		else
+			break  # long form, exit inner loop
+		fi
+	done
+	# Done with that param. move to next
+	shift
+done
+# Set the non-parameters back into the positional parameters ($1 $2 ..)
+eval set -- $REMAINS
+REMAINS=''
+# parse flags and switches <<<1
+
+# check for failed flags >>>1
+while [ -n "$1" ]; do
+
+	OPT="$1"
+	case "$OPT" in
+		-*)
+			# if this is here the first character was an invalid flag
+			log_error "${OPT:1:1} is not a valid flag"
+			exit 2
+			;;
+		*)
+			REMAINS="$REMAINS \"$OPT\""
+			;;
+	esac
+	shift
+done
+eval set -- $REMAINS
+REMAINS=''
+# check for failed flags <<<1
+# set DOCUMENT >>>1
+# we should only have a single remaining argument
+if [ $# -eq 0 ] || [ $# -ge 2 ]; then
+	log_error "a single input file is required"
+	exit 2
+else
+	DOCUMENT="$1"
+fi
+if [ ! -f "$DOCUMENT" ]
+then
+	log_error "$DOCUMENT does not name a latex document!"
+	exit 2
+else
+	case "$DOCUMENT" in
+		"*.tex") ;; # no problem
+		"*")
+			log_warning "$DOCUMENT is missing the .tex file extension."
+			;;
+	esac
+fi
+# set DOCUMENT <<<1
+# set BUILDDIR and LOGFILE >>>1
+BUILDDIR=/tmp/maketex/`basename "$DOCUMENT" .tex`.build
+LOGFILE=/tmp/maketex/`basename "$DOCUMENT" .tex`-`date +"%Y-%m-%d-%R:%S"`.log
+if [ ! -d "$BUILDDIR" ]; then
+	log_warn "$BUILDDIR does not exist, creating it now"
+	mkdir -p "$BUILDDIR"
+fi
+# set BUILDDIR and LOGFILE <<<1
+# debugging statements >>>1
+if [ x"$BIBLIOGRAPHY" = x"true" ]; then
+	log_debug "bibtex will be run after pdflatex";
+fi
+if [ x"$MONITOR" = x"true" ]; then
+	log_debug "will re-run pdflatex on $DOCUMENT on change";
+fi
+if [ x"$VERBOSE" = x"true" ]; then
+	log_debug "running in verbose mode";
+fi
+# debugging statements <<<1
+# check for external programs >>>1
+if [ -z "$PDFLATEX" ]; then
+	log_error "pdflatex not found"
+	exit 2
+else
+	log_debug "found `$PDFLATEX --version | head -n 1`"
+fi
+if [ -z "$BIBTEX" ]; then
+	log_error "bibtex not found"
+	exit 2
+else
+	log_debug "found `$BIBTEX --version | head -n 1`"
+fi
+if [ -z "$CP" ]; then
+	log_error "cp not found"
+	exit 2
+fi
+# check for external programs <<<1
+# run file system watch >>>1
+if [ x"$MONITOR" = x"true" ]; then
+	if [ x"`uname`" = x"Darwin" ]; then
+		if [ -z "`which fswatch`" ]; then
+			log_critical "expected fswatch to be installed on macOS - monitor not activated"
+		else
+			fswatch "$DOCUMENT" | while read filename; do $MAKETEX "$filename"; done
+		fi
+	else
+		if [ -z "`which inotifywait`" ]; then
+			log_critical "expected inotifywait to be installed on linux - monitor not activated"
+		else
+			inotifywait "$DOCUMENT" | while read filename; do $MAKETEX "$filename"; done
+		fi
+	fi
+fi
+# run file system watch <<<1
+# run pdflatex >>>1
+pdflatex_command() {
+	$PDFLATEX -output-directory="$BUILDDIR" -interaction=nonstopmode \
+		-halt-on-error -synctex=1 "$DOCUMENT"
+}
+
+log_info "compiling" $(basename "$DOCUMENT") ...
+
+if [ x"$VERBOSE" = x"true" ]; then
+	pdflatex_command
+	if [ ! $? -eq 0 ]; then
+		log_error "pdflatex returned with a nonzero exit status"
+		exit $?
+	fi
+else
+	pdflatex_command >> "$LOGFILE"
+	if [ ! $? -eq 0 ]; then
+		log_error "pdflatex returned with a nonzero exit status"
+		exit $?
+	else
+		log_debug "logs written to $LOGFILE"
+	fi
+fi
+# run pdflatex <<<1
+# run bibtex >>>1
+if [ x"$BIBLIOGRAPHY" = x"true" ]; then
+
+	log_info "running bibtex ..."
+
+	bibtex_command() {
+		name=$(basename "$DOCUMENT" .tex)
+		BIBINPUTS="$BUILDDIR": TEXMFOUTPUT="$BUILDDIR": BSTINPUTS="$BUILDDIR//": \
+			openout_any=a "$BIBTEX" "$BUILDDIR"/"$name"
+	}
+
+	if [ x"$VERBOSE" = x"true" ]; then
+		bibtex_command
+		if [ ! $? -eq 0 ]; then
+			log_error "bibtex returned with a nonzero exit status"
+			exit $?
+		fi
+	else
+		bibtex_command >> "$LOGFILE"
+		if [ ! $? -eq 0 ]; then
+			log_error "bibtex returned with a nonzero exit status"
+			exit $?
+		else
+			log_debug "bibtex output written to $LOGFILE"
+		fi
+	fi
+
+	log_info "You may need to rerun MakeTex to fix citations"
+fi
+# run bibtex <<<1
+# return pdf >>>1
+name=$(basename "$DOCUMENT" .tex)
+dir=$(dirname "$DOCUMENT")
+$CP "$BUILDDIR"/"$name".pdf "$dir"/
+if [ ! $? -eq 0 ]; then
+	log_warn "failure: $CP $BUILDDIR/$name.pdf $dir/ returned nonzero exit status"
+else
+	log_info "output written to" `dirname "$DOCUMENT"`/`basename "$DOCUMENT" .tex`.pdf
+fi
+# return pdf <<<1
+exit 0
