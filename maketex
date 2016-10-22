@@ -45,7 +45,7 @@ case "$1" in
 	-h | --help)
 
 		if [ $# -eq 2 ]; then
-			log_warning "help requested, ignoring remaining arguments"
+			log_warn "help requested, ignoring remaining arguments"
 		fi
 
 		"$MAKETEX" # print usage first
@@ -177,7 +177,7 @@ else
 	case "$DOCUMENT" in
 		"*.tex") ;; # no problem
 		"*")
-			log_warning "$DOCUMENT is missing the .tex file extension."
+			log_warn "$DOCUMENT is missing the .tex file extension."
 			;;
 	esac
 fi
@@ -225,13 +225,19 @@ if [ x"$MONITOR" = x"true" ]; then
 		if [ -z "`which fswatch`" ]; then
 			log_critical "expected fswatch to be installed on macOS - monitor not activated"
 		else
+			log_info "watching $DOCUMENT for changes ... control-C to exit"
 			fswatch "$DOCUMENT" | while read filename; do $MAKETEX "$filename"; done
+			log_info "exiting ..."
+			exit 0
 		fi
 	else
 		if [ -z "`which inotifywait`" ]; then
 			log_critical "expected inotifywait to be installed on linux - monitor not activated"
 		else
+			log_info "watching $DOCUMENT for changes ... control-C to exit"
 			inotifywait "$DOCUMENT" | while read filename; do $MAKETEX "$filename"; done
+			log_info "exiting ..."
+			exit 0
 		fi
 	fi
 fi
@@ -295,7 +301,7 @@ name=$(basename "$DOCUMENT" .tex)
 dir=$(dirname "$DOCUMENT")
 $CP "$BUILDDIR"/"$name".pdf "$dir"/
 if [ ! $? -eq 0 ]; then
-	log_warn "failure: $CP $BUILDDIR/$name.pdf $dir/ returned nonzero exit status"
+	log_warn "failure: cp $BUILDDIR/$name.pdf $dir/ returned nonzero exit status"
 else
 	log_info "output written to" `dirname "$DOCUMENT"`/`basename "$DOCUMENT" .tex`.pdf
 fi
