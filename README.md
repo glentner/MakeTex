@@ -1,7 +1,7 @@
 MakeTex
 -------
 
-Compile a LaTeX source file into a PDF document.
+[![GitHub license](http://img.shields.io/badge/license-GPLv3-blue.svg?style=flat)](http://www.gnu.org/copyleft/gpl.html)
 
 
 ```
