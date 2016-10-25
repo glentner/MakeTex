@@ -184,7 +184,7 @@ fi
 # set DOCUMENT <<<1
 # set BUILDDIR and LOGFILE >>>1
 BUILDDIR=/tmp/maketex/`basename "$DOCUMENT" .tex`.build
-LOGFILE=/tmp/maketex/`basename "$DOCUMENT" .tex`-`date +"%Y-%m-%d-%R:%S"`.log
+LOGFILE="$BUILDDIR"/`date +"%Y-%m-%d-%R:%S"`.log
 if [ ! -d "$BUILDDIR" ]; then
 	log_warn "$BUILDDIR does not exist, creating it now"
 	mkdir -p "$BUILDDIR"
